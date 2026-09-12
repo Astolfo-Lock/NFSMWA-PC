@@ -46,6 +46,7 @@ Consulta [ROADMAP.md](ROADMAP.md) para conocer el estado de las tareas pendiente
 
 Los recursos originales importados se guardan localmente dentro de `Motor/`. Sus extensiones están excluidas mediante `.gitignore` y no deben publicarse ni redistribuirse.
 
+
 ## Requisitos
 
 - Windows con compatibilidad para aplicaciones x86.
@@ -112,11 +113,11 @@ Para usar un mando, abre **MANDO** en el launcher. Allí puedes activar el sopor
 
 ## Desarrollo y créditos
 
-- Desarrollo de la capa de compatibilidad, herramientas e integración realizado con asistencia de **ChatGPT 5.6 Sol**, usando los niveles de razonamiento **High** y **Extra High**.
-- **Grok** se encargó de la interfaz visual del launcher y de la configuración de mando.
+- Desarrollo de la capa de compatibilidad, herramientas e integración realizado por **ChatGPT 5.6 Sol**, usando los niveles de razonamiento **High** y **Extra High**.
+- **Grok** se encargó de la interfaz visual del launcher.
 
 ## Aviso legal
 
 Este es un proyecto independiente y no oficial. No está afiliado, patrocinado ni respaldado por Electronic Arts. *Need for Speed*, *Need for Speed: Most Wanted* y sus recursos pertenecen a sus respectivos propietarios.
 
-NFSMWA-PC no elimina verificaciones de licencia ni distribuye el contenido original del juego. Cada usuario es responsable de utilizar archivos obtenidos de una copia adquirida legalmente y de cumplir la legislación aplicable.
+NFSMWA-PC no elimina verificaciones de licencia ni distribuye el contenido original del juego. Cada usuario es responsable de utilizar archivos obtenidos de una copia adquirida legalmente.
