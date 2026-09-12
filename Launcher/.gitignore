@@ -1,0 +1,19 @@
+# This folder is the launcher only. Game assets stay in native_prototype.
+*.so
+*.obb
+*.apk
+*.ttf
+nfsmwa_runtime.exe
+libEGL.dll
+libGLESv2.dll
+SDL2.dll
+game_data/
+fonts/
+__pycache__/
+.venv/
+build/
+dist/
+*.pyc
+launcher_settings.json
+controller.ini
+*.log

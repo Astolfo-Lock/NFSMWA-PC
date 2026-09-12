@@ -1,0 +1,6 @@
+﻿Estos archivos son el subconjunto seguro para GitHub del NFSMW Asset Importer.
+
+No incluyen APK, OBB, .so, fuentes originales, platform-tools, respaldos, partidas ni logs.
+Cada usuario importa esos recursos desde su propia copia legal con este programa.
+
+El importador busca la raiz del port (carpeta con native_prototype) hacia arriba, o con --project-root.

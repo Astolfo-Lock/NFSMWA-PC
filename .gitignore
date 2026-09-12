@@ -1,0 +1,38 @@
+# Original game assets: each user must import a legally owned copy.
+*.apk
+*.obb
+*.so
+*.ttf
+**/game_data/
+**/fonts/
+
+# Local settings, saves, logs and importer state.
+**/launcher_settings.json
+**/controller.ini
+**/nfsmw_paths.json
+**/asset_import_manifest.json
+**/importer_backups/
+*.log
+
+# Python and PyInstaller output.
+**/.venv/
+**/__pycache__/
+*.py[cod]
+**/build/
+**/dist/
+*.spec.bak
+
+# Local tools and generated bundles not intended for the repository.
+/ExeSimple/
+/platform-tools/
+
+# Superseded working documents.
+/README1.md
+/README2.md
+/launcheralterui.py
+
+# Editors and operating systems.
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

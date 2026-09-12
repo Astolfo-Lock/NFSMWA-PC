@@ -1,0 +1,21 @@
+NEED FOR SPEED MOST WANTED ANDROID - CONTROLES DEL PORT NATIVO
+
+El launcher permite elegir resolucion, modo de pantalla, VSync y mando antes de jugar.
+
+A / Flecha izquierda  Girar progresivamente a la izquierda
+D / Flecha derecha    Girar progresivamente a la derecha
+S / Flecha abajo      Frenar (mantener)
+Shift                  Derrapar (mantener junto con A/D)
+Espacio                Nitro
+Escape                 Atras / Pausa
+Raton                   Tocar y arrastrar la pantalla virtual
+X / Alt+F4             Cerrar el juego ordenadamente
+
+MANDO XINPUT O HID/SDL / MOGA
+
+Pulsa MANDO en el launcher para elegir el dispositivo, ajustar la zona
+muerta y reasignar cada boton. Detecta mandos Xbox mediante XInput y mandos
+Switch, PlayStation o genericos mediante SDL2/HID. Los sticks conservan
+entrada analogica y LT/RT funcionan como ejes y como botones asignables.
+
+El coche acelera automaticamente, igual que en la version movil.

@@ -1,0 +1,10 @@
+Doble clic en "Compilar launcher.bat"
+
+El .bat busca, en este orden:
+1. .venv en esta carpeta (Launcher)
+2. .venv en carpetas cercanas (Clean, hermanas como Importer, o el padre)
+3. Python del sistema que ya tenga PyQt6 y PyInstaller
+4. Si no hay nada de eso, crea un .venv e instala requirements.txt
+
+O en PowerShell, desde esta carpeta:
+.\build_launcher.ps1

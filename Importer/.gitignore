@@ -1,0 +1,50 @@
+# Proprietary Need for Speed Most Wanted Android 1.3.128 assets.
+# Each user must import these from a legally owned copy.
+*.apk
+*.obb
+native_prototype/*.so
+native_prototype/fonts/*.ttf
+native_analysis/apk/
+game_backup/
+release/game_backup/
+
+# Local import state, backups, saves and logs
+importer_backups/
+**/asset_import_manifest.json
+native_prototype/game_data/runtime.log
+native_prototype/game_data/var/
+native_prototype/game_data/var1/
+native_prototype/game_data/active_accepted
+native_prototype/game_data/enable.telemetry
+native_prototype/launcher_settings.json
+native_prototype/controller.ini
+*.log
+
+# Android Platform Tools (do not auto-download; keep local)
+platform-tools/
+
+# Python / PyInstaller
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+*.spec.bak
+
+# Local analysis dumps and third-party installers
+tools/jadx*/
+tools/*.zip
+tools/LDPlayer*.exe
+video_analysis/
+native_analysis/*.png
+native_analysis/*.bmp
+native_analysis/*.log
+native_analysis/*.jpg
+native_runtime/win32_host/build/
+
+# Editor / OS
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
