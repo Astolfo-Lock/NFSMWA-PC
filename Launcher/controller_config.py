@@ -400,8 +400,15 @@ def save_controller_settings(path: Path, settings: dict[str, object]) -> None:
 
 
 class ControllerSettingsDialog(QDialog):
-    def __init__(self, config_path: Path, parent: QWidget | None = None) -> None:
+    def __init__(
+        self,
+        config_path: Path,
+        parent: QWidget | None = None,
+        *,
+        language: str = "es",
+    ) -> None:
         super().__init__(parent)
+        self.language = "en" if language == "en" else "es"
         self.config_path = config_path
         self.backend = HybridControllerBackend()
         self.settings = load_controller_settings(config_path)
@@ -411,7 +418,7 @@ class ControllerSettingsDialog(QDialog):
         self.capture_baseline: set[str] = set()
 
         self.setObjectName("controllerDialog")
-        self.setWindowTitle("Mando MOGA")
+        self.setWindowTitle(self.tr("Mando MOGA", "MOGA Controller"))
         self.setModal(True)
         self.setStyleSheet("QDialog#controllerDialog { background: #3A4A52; }" + nfs_chrome_stylesheet())
         self._build_ui()
@@ -424,6 +431,43 @@ class ControllerSettingsDialog(QDialog):
         self.poll_timer.start()
         self.finished.connect(lambda _result: self.backend.close())
 
+    def tr(self, spanish: str, english: str) -> str:
+        return english if self.language == "en" else spanish
+
+    def physical_label(self, name: str) -> str:
+        label = PHYSICAL_LABELS.get(name, "SIN ASIGNAR")
+        if self.language != "en":
+            return label
+        translations = {
+            "SIN ASIGNAR": "UNASSIGNED",
+            "CRUCETA ARRIBA": "D-PAD UP",
+            "CRUCETA ABAJO": "D-PAD DOWN",
+            "CRUCETA IZQUIERDA": "D-PAD LEFT",
+            "CRUCETA DERECHA": "D-PAD RIGHT",
+        }
+        return translations.get(label, label)
+
+    def mapping_label(self, label: str) -> str:
+        if self.language != "en":
+            return label
+        translations = {
+            "MOGA A / aceptar": "MOGA A / accept",
+            "MOGA B / atrás": "MOGA B / back",
+            "Pausa / Start": "Pause / Start",
+            "Pulsar stick izquierdo": "Press left stick",
+            "Pulsar stick derecho": "Press right stick",
+            "Cruceta arriba": "D-pad up",
+            "Cruceta abajo": "D-pad down",
+            "Cruceta izquierda": "D-pad left",
+            "Cruceta derecha": "D-pad right",
+        }
+        return translations.get(label, label)
+
+    def controller_label(self, label: str) -> str:
+        if self.language != "en":
+            return label
+        return label.replace("Mando", "Controller").replace("no detectado", "not detected")
+
     def paintEvent(self, event: QPaintEvent) -> None:
         del event
         painter = QPainter(self)
@@ -434,7 +478,7 @@ class ControllerSettingsDialog(QDialog):
             self.awaiting_binding = None
             self.capture_baseline.clear()
             self._refresh_binding_buttons()
-            self.status.setText("Asignación cancelada.")
+            self.status.setText(self.tr("Asignación cancelada.", "Assignment cancelled."))
             event.accept()
             return
         if self.awaiting_binding and event.key() in {Qt.Key.Key_Delete, Qt.Key.Key_Backspace}:
@@ -443,34 +487,43 @@ class ControllerSettingsDialog(QDialog):
             self.awaiting_binding = None
             self.capture_baseline.clear()
             self._refresh_binding_buttons()
-            self.status.setText("Entrada dejada sin asignar.")
+            self.status.setText(self.tr("Entrada dejada sin asignar.", "Input left unassigned."))
             event.accept()
             return
         super().keyPressEvent(event)
 
     def _build_ui(self) -> None:
-        header = NfsHeader("MANDO MOGA", "XINPUT + HID/SDL · CONFIGURACIÓN Y MAPEO")
+        header = NfsHeader(
+            self.tr("MANDO MOGA", "MOGA CONTROLLER"),
+            self.tr("XINPUT + HID/SDL · CONFIGURACIÓN Y MAPEO", "XINPUT + HID/SDL · SETUP AND MAPPING"),
+        )
 
-        self.enabled_row = NfsOptionRow("Soporte de mando")
+        self.enabled_row = NfsOptionRow(self.tr("Soporte de mando", "Controller support"))
         self.enabled_row.set_items([
-            ("ACTIVADO", True),
-            ("DESACTIVADO", False),
+            (self.tr("ACTIVADO", "ON"), True),
+            (self.tr("DESACTIVADO", "OFF"), False),
         ])
 
-        self.device_row = NfsOptionRow("Dispositivo")
+        self.device_row = NfsOptionRow(self.tr("Dispositivo", "Device"))
         self.device_row.set_items([
-            (label, player) for player, label in enumerate(self.backend.slot_labels())
+            (self.controller_label(label), player)
+            for player, label in enumerate(self.backend.slot_labels())
         ])
         self.device_row.valueChanged.connect(self._device_changed)
 
-        self.deadzone_row = NfsOptionRow("Zona muerta de sticks")
+        self.deadzone_row = NfsOptionRow(self.tr("Zona muerta de sticks", "Stick dead zone"))
         self.deadzone_row.set_items([(f"{percent}%", percent) for percent in range(0, 41)])
 
-        mapping_section = make_section_label("ASIGNACIÓN DE BOTONES")
+        mapping_section = make_section_label(self.tr("ASIGNACIÓN DE BOTONES", "BUTTON MAPPING"))
         mapping_hint = make_wrapping_label(
-            "Pulsa una asignación y después el botón físico deseado. Los sticks permanecen "
-            "analógicos; LT y RT también pueden utilizarse como botones. Esc cancela y Supr "
-            "deja la entrada sin asignar.",
+            self.tr(
+                "Pulsa una asignación y después el botón físico deseado. Los sticks permanecen "
+                "analógicos; LT y RT también pueden utilizarse como botones. Esc cancela y Supr "
+                "deja la entrada sin asignar.",
+                "Select an assignment and then press the desired physical button. The sticks "
+                "remain analog; LT and RT can also be used as buttons. Esc cancels and Delete "
+                "leaves the input unassigned.",
+            ),
             "hint",
         )
 
@@ -480,7 +533,7 @@ class ControllerSettingsDialog(QDialog):
         grid.setHorizontalSpacing(8)
         grid.setVerticalSpacing(6)
         for row, (key, label, _default) in enumerate(MAPPING_DEFINITIONS):
-            action_label = make_wrapping_label(label.upper(), "hint")
+            action_label = make_wrapping_label(self.mapping_label(label).upper(), "hint")
             button = NfsActionButton("", compact=True)
             button.clicked.connect(lambda _checked=False, mapping_key=key: self._begin_capture(mapping_key))
             self.binding_buttons[key] = button
@@ -492,11 +545,11 @@ class ControllerSettingsDialog(QDialog):
 
         self.status = make_wrapping_label("", "status")
 
-        reset_button = NfsActionButton("RESTABLECER", compact=True)
+        reset_button = NfsActionButton(self.tr("RESTABLECER", "RESET"), compact=True)
         reset_button.clicked.connect(self._reset_defaults)
-        save_button = NfsActionButton("GUARDAR")
+        save_button = NfsActionButton(self.tr("GUARDAR", "SAVE"))
         save_button.clicked.connect(self._save)
-        back_button = NfsActionButton("VOLVER", compact=True)
+        back_button = NfsActionButton(self.tr("VOLVER", "BACK"), compact=True)
         back_button.clicked.connect(self.reject)
         actions = QHBoxLayout()
         actions.setContentsMargins(24, 0, 24, 16)
@@ -540,7 +593,7 @@ class ControllerSettingsDialog(QDialog):
 
     def _refresh_binding_buttons(self) -> None:
         for key, button in self.binding_buttons.items():
-            button.setText(PHYSICAL_LABELS.get(self.bindings.get(key, "NONE"), "SIN ASIGNAR"))
+            button.setText(self.physical_label(self.bindings.get(key, "NONE")))
 
     def _device_changed(self) -> None:
         self.awaiting_binding = None
@@ -553,12 +606,15 @@ class ControllerSettingsDialog(QDialog):
         reading = self.backend.reading(int(self.device_row.current_data() or 0))
         self.capture_baseline = reading.active_inputs if reading else set()
         self._refresh_binding_buttons()
-        self.binding_buttons[mapping_key].setText("PULSA UN BOTÓN…")
-        self.status.setText("Esperando una entrada del mando. Pulsa el botón físico que quieras asignar.")
+        self.binding_buttons[mapping_key].setText(self.tr("PULSA UN BOTÓN…", "PRESS A BUTTON…"))
+        self.status.setText(self.tr(
+            "Esperando una entrada del mando. Pulsa el botón físico que quieras asignar.",
+            "Waiting for controller input. Press the physical button you want to assign.",
+        ))
 
     def _poll_controller(self) -> None:
         player = int(self.device_row.current_data() or 0)
-        labels = self.backend.slot_labels()
+        labels = [self.controller_label(label) for label in self.backend.slot_labels()]
         existing = self.device_row.item_labels()
         if existing != labels:
             self.device_row.blockSignals(True)
@@ -578,17 +634,29 @@ class ControllerSettingsDialog(QDialog):
                 self.awaiting_binding = None
                 self.capture_baseline.clear()
                 self._refresh_binding_buttons()
-                self.status.setText(f"Asignado: {PHYSICAL_LABELS[physical]}.")
+                self.status.setText(self.tr(
+                    f"Asignado: {self.physical_label(physical)}.",
+                    f"Assigned: {self.physical_label(physical)}.",
+                ))
                 return
         if reading is None:
-            backend = self.backend.library_name or "XInput no disponible"
-            self.status.setText(f"Mando {player + 1} no detectado · backend: {backend}.")
+            backend = self.backend.library_name or self.tr("XInput no disponible", "XInput unavailable")
+            self.status.setText(self.tr(
+                f"Mando {player + 1} no detectado · backend: {backend}.",
+                f"Controller {player + 1} not detected · backend: {backend}.",
+            ))
         else:
-            pressed = ", ".join(PHYSICAL_LABELS[name] for name in PHYSICAL_LABELS if name in active)
+            pressed = ", ".join(self.physical_label(name) for name in PHYSICAL_LABELS if name in active)
             self.status.setText(
-                f"{reading.name} conectado mediante {reading.backend}"
-                + (f" · entrada: {pressed}" if pressed else " · esperando entrada")
+                f"{self.controller_label(reading.name)} conectado mediante {reading.backend}"
+                + (
+                    self.tr(f" · entrada: {pressed}", f" · input: {pressed}")
+                    if pressed
+                    else self.tr(" · esperando entrada", " · waiting for input")
+                )
             )
+            if self.language == "en":
+                self.status.setText(self.status.text().replace(" conectado mediante ", " connected through "))
 
     def _reset_defaults(self) -> None:
         defaults = default_controller_settings()
@@ -598,7 +666,10 @@ class ControllerSettingsDialog(QDialog):
         self.bindings = dict(defaults["bindings"])
         self.awaiting_binding = None
         self._refresh_binding_buttons()
-        self.status.setText("Asignaciones estándar restauradas. Pulsa GUARDAR para aplicarlas.")
+        self.status.setText(self.tr(
+            "Asignaciones estándar restauradas. Pulsa GUARDAR para aplicarlas.",
+            "Default assignments restored. Press SAVE to apply them.",
+        ))
 
     def _save(self) -> None:
         settings = {
@@ -610,7 +681,14 @@ class ControllerSettingsDialog(QDialog):
         try:
             save_controller_settings(self.config_path, settings)
         except OSError as exc:
-            QMessageBox.critical(self, "Mando MOGA", f"No se pudo guardar el perfil.\n\n{exc}")
+            QMessageBox.critical(
+                self,
+                self.tr("Mando MOGA", "MOGA Controller"),
+                self.tr(f"No se pudo guardar el perfil.\n\n{exc}", f"Could not save the profile.\n\n{exc}"),
+            )
             return
         self.settings = settings
-        self.status.setText("Perfil MOGA guardado. Se aplicará al iniciar el juego.")
+        self.status.setText(self.tr(
+            "Perfil MOGA guardado. Se aplicará al iniciar el juego.",
+            "MOGA profile saved. It will be applied when the game starts.",
+        ))

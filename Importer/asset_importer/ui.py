@@ -5,7 +5,7 @@ import subprocess
 import traceback
 from pathlib import Path
 
-from PyQt6.QtCore import QThread, pyqtSignal
+from PyQt6.QtCore import QSettings, QThread, pyqtSignal
 from PyQt6.QtGui import QPainter, QTextCursor
 from PyQt6.QtWidgets import (
     QFileDialog,
@@ -33,6 +33,7 @@ from .nfs_chrome import (
 
 from .adb import AdbDevice
 from .constants import APP_TITLE, GAME_TITLE, OBB_FILENAME, PACKAGE_NAME, VERSION_NAME
+from .i18n import get_language, set_language, t, translate_message
 from .paths import (
     ProjectPaths,
     relocate_game_package,
@@ -58,6 +59,7 @@ class Worker(QThread):
         self.action = action
         self.kwargs = kwargs
         self._cancel = False
+        self.language = get_language()
 
     def cancel(self) -> None:
         self._cancel = True
@@ -65,11 +67,13 @@ class Worker(QThread):
     def _pipeline(self) -> Pipeline:
         return Pipeline(
             self.project,
-            log=self.log_line.emit,
-            progress=lambda pct, msg: self.progress.emit(int(pct), msg),
-            set_device=self.device_text.emit,
+            log=lambda msg: self.log_line.emit(translate_message(msg, self.language)),
+            progress=lambda pct, msg: self.progress.emit(
+                int(pct), translate_message(msg, self.language)
+            ),
+            set_device=lambda msg: self.device_text.emit(translate_message(msg, self.language)),
             set_version=self.version_text.emit,
-            set_stage=self.stage_text.emit,
+            set_stage=lambda msg: self.stage_text.emit(translate_message(msg, self.language)),
             cancelled=lambda: self._cancel,
         )
 
@@ -95,21 +99,21 @@ class Worker(QThread):
             if self.action == "build":
                 self._run_build()
                 return
-            raise PipelineError(f"Acción desconocida: {self.action}")
+            raise PipelineError(t(f"Acción desconocida: {self.action}", f"Unknown action: {self.action}"))
         except ImportCancelled as exc:
-            self.failed.emit(str(exc))
+            self.failed.emit(translate_message(str(exc), self.language))
         except (PipelineError, OSError) as exc:
-            self.failed.emit(str(exc))
+            self.failed.emit(translate_message(str(exc), self.language))
         except Exception:
             self.failed.emit(traceback.format_exc())
 
     def _run_build(self) -> None:
         script = self.project.build_script
         if not script.is_file():
-            raise PipelineError(f"No se encontró build.ps1 en {script}")
-        self.stage_text.emit("Ejecutando build.ps1")
-        self.progress.emit(5, "Compilando")
-        self.log_line.emit(f"Lanzando {script}")
+            raise PipelineError(t(f"No se encontró build.ps1 en {script}", f"Could not find build.ps1 at {script}"))
+        self.stage_text.emit(t("Ejecutando build.ps1", "Running build.ps1"))
+        self.progress.emit(5, t("Compilando", "Building"))
+        self.log_line.emit(t(f"Lanzando {script}", f"Launching {script}"))
         creation = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
         process = subprocess.Popen(
             [
@@ -132,19 +136,22 @@ class Worker(QThread):
         for line in process.stdout:
             if self._cancel:
                 process.kill()
-                raise ImportCancelled("Compilación cancelada.")
+                raise ImportCancelled(t("Compilación cancelada.", "Build cancelled."))
             text = line.rstrip()
             if text:
                 self.log_line.emit(text)
         code = process.wait()
         if code != 0:
-            raise PipelineError(f"build.ps1 terminó con código {code}.")
+            raise PipelineError(t(
+                f"build.ps1 terminó con código {code}.",
+                f"build.ps1 finished with code {code}.",
+            ))
         result = ImportResult(
             assets_ok=True,
             play_ready=True,
-            message="build.ps1 terminó correctamente.",
+            message=t("build.ps1 terminó correctamente.", "build.ps1 finished successfully."),
         )
-        self.progress.emit(100, "Compilación lista")
+        self.progress.emit(100, t("Compilación lista", "Build complete"))
         self.succeeded.emit(result)
 
 
@@ -154,12 +161,15 @@ class ImporterWindow(QWidget):
         self.project = project
         self.worker: Worker | None = None
         self.devices: list[AdbDevice] = []
+        self.app_settings = QSettings("NFSMWA-PC", "Asset Importer")
+        saved_language = str(self.app_settings.value("language", "es"))
+        set_language(saved_language)
         self.setObjectName("importer")
         self.setWindowTitle(APP_TITLE)
         self.setStyleSheet("QWidget#importer { background: #3A4A52; }" + nfs_chrome_stylesheet())
         install_nfs_fonts(self.project.fonts)
         self._build_ui()
-        fit_nfs_window(self, 560, 780, min_width=400, min_height=420)
+        fit_nfs_window(self, 560, 850, min_width=400, min_height=420)
 
     def paintEvent(self, event) -> None:  # noqa: ANN001
         del event
@@ -169,7 +179,12 @@ class ImporterWindow(QWidget):
     def _build_ui(self) -> None:
         self.header = NfsHeader("IMPORTADOR", "NEED FOR SPEED  MOST WANTED")
 
-        status_section = make_section_label("ESTADO")
+        self.language_row = NfsOptionRow("Idioma")
+        self.language_row.set_items([("ESPAÑOL", "es"), ("ENGLISH", "en")])
+        self.language_row.set_current_data(get_language())
+        self.language_row.valueChanged.connect(self.language_changed)
+
+        self.status_section = make_section_label("ESTADO")
         self.device_value = NfsInfoRow("Dispositivo")
         self.device_value.setText("Sin detectar")
         self.version_value = NfsInfoRow("Versión")
@@ -182,7 +197,7 @@ class ImporterWindow(QWidget):
         self.device_row = NfsOptionRow("Elegir dispositivo")
         self.device_row.setVisible(False)
 
-        dest_section = make_section_label("CARPETA DEL JUEGO")
+        self.dest_section = make_section_label("CARPETA DEL JUEGO")
         self.dest_info = NfsInfoRow("Destino")
         self.dest_info.setText("")
         self.browse_button = NfsActionButton("ELEGIR CARPETA", compact=True)
@@ -205,7 +220,7 @@ class ImporterWindow(QWidget):
         self.log.setMinimumHeight(72)
         self.log.setPlaceholderText("El detalle de ADB, validación e instalación aparece aquí.")
 
-        hint = make_wrapping_label(
+        self.hint = make_wrapping_label(
             "Activa Depuración USB, autoriza este PC y ten instalado "
             f"{GAME_TITLE} {VERSION_NAME} ({PACKAGE_NAME}). "
             "Si Android 11+ bloquea el OBB, selecciona el APK y el OBB copiados al PC. "
@@ -251,7 +266,9 @@ class ImporterWindow(QWidget):
         content = QVBoxLayout(body)
         content.setContentsMargins(24, 12, 24, 14)
         content.setSpacing(0)
-        content.addWidget(status_section)
+        content.addWidget(self.language_row)
+        content.addSpacing(12)
+        content.addWidget(self.status_section)
         content.addSpacing(8)
         content.addWidget(self.device_value)
         content.addSpacing(6)
@@ -263,7 +280,7 @@ class ImporterWindow(QWidget):
         content.addSpacing(6)
         content.addWidget(self.result_value)
         content.addSpacing(12)
-        content.addWidget(dest_section)
+        content.addWidget(self.dest_section)
         content.addSpacing(8)
         content.addWidget(self.dest_info)
         content.addSpacing(8)
@@ -273,7 +290,7 @@ class ImporterWindow(QWidget):
         content.addSpacing(8)
         content.addWidget(self.log, 1)
         content.addSpacing(8)
-        content.addWidget(hint)
+        content.addWidget(self.hint)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -281,6 +298,49 @@ class ImporterWindow(QWidget):
         layout.addWidget(self.header)
         layout.addWidget(scroll, 1)
         layout.addLayout(actions)
+        self.retranslate_ui()
+
+    def retranslate_ui(self) -> None:
+        self.header.set_text(t("IMPORTADOR", "IMPORTER"), "NEED FOR SPEED  MOST WANTED")
+        self.language_row.set_label(t("Idioma", "Language"))
+        self.status_section.setText(t("ESTADO", "STATUS"))
+        self.device_value.set_label(t("Dispositivo", "Device"))
+        self.version_value.set_label(t("Versión", "Version"))
+        self.stage_value.set_label(t("Etapa", "Stage"))
+        self.result_value.set_label(t("Resultado", "Result"))
+        self.device_row.set_label(t("Elegir dispositivo", "Choose device"))
+        self.dest_section.setText(t("CARPETA DEL JUEGO", "GAME FOLDER"))
+        self.dest_info.set_label(t("Destino", "Destination"))
+        self.browse_button.setText(t("ELEGIR CARPETA", "CHOOSE FOLDER"))
+        self.move_button.setText(t("MOVER ACTUAL AQUÍ", "MOVE CURRENT HERE"))
+        self.log.setPlaceholderText(t(
+            "El detalle de ADB, validación e instalación aparece aquí.",
+            "ADB, validation, and installation details appear here.",
+        ))
+        self.hint.setText(t(
+            "Activa Depuración USB, autoriza este PC y ten instalado "
+            f"{GAME_TITLE} {VERSION_NAME} ({PACKAGE_NAME}). "
+            "Si Android 11+ bloquea el OBB, selecciona el APK y el OBB copiados al PC. "
+            "Usa únicamente tu copia legal.",
+            "Enable USB debugging, authorize this PC, and make sure "
+            f"{GAME_TITLE} {VERSION_NAME} ({PACKAGE_NAME}) is installed. "
+            "If Android 11+ blocks the OBB, select the APK and OBB copied to the PC. "
+            "Only use your legally owned copy.",
+        ))
+        self.detect_button.setText(t("DETECTAR TELÉFONO", "DETECT PHONE"))
+        self.phone_button.setText(t("IMPORTAR DESDE TELÉFONO", "IMPORT FROM PHONE"))
+        self.local_button.setText(t("ARCHIVOS LOCALES", "LOCAL FILES"))
+        self.folder_button.setText(t("ABRIR CARPETA", "OPEN FOLDER"))
+        self.build_button.setText(t("EJECUTAR BUILD.PS1", "RUN BUILD.PS1"))
+        self.cancel_button.setText(t("CANCELAR", "CANCEL"))
+        for row in (self.device_value, self.stage_value, self.result_value):
+            row.setText(translate_message(row.text()))
+
+    def language_changed(self) -> None:
+        language = str(self.language_row.current_data() or "es")
+        set_language(language)
+        self.app_settings.setValue("language", language)
+        self.retranslate_ui()
 
     def append_log(self, message: str) -> None:
         self.log.append(message)
@@ -295,6 +355,7 @@ class ImporterWindow(QWidget):
             self.build_button,
             self.browse_button,
             self.move_button,
+            self.language_row,
         ):
             button.setEnabled(not busy)
         if not busy:
@@ -336,21 +397,30 @@ class ImporterWindow(QWidget):
         if len(ready) > 1:
             self.device_row.set_items([(item.label, item.serial) for item in ready])
             self.device_row.setVisible(True)
-            self.append_log("Hay varios dispositivos autorizados. Elige uno antes de importar.")
+            self.append_log(t(
+                "Hay varios dispositivos autorizados. Elige uno antes de importar.",
+                "Several authorized devices were found. Choose one before importing.",
+            ))
         else:
             self.device_row.setVisible(False)
         if not devices:
-            self._set_result("Ningún dispositivo ADB detectado.", "warn")
+            self._set_result(t("Ningún dispositivo ADB detectado.", "No ADB device detected."), "warn")
         elif ready:
-            self._set_result(f"{len(ready)} dispositivo(s) listo(s) para importar.", "ok")
+            self._set_result(t(
+                f"{len(ready)} dispositivo(s) listo(s) para importar.",
+                f"{len(ready)} device(s) ready to import.",
+            ), "ok")
         else:
-            self._set_result("Hay un teléfono, pero no está autorizado o está offline.", "warn")
+            self._set_result(t(
+                "Hay un teléfono, pero no está autorizado o está offline.",
+                "A phone was found, but it is unauthorized or offline.",
+            ), "warn")
 
     def _on_success(self, result: object) -> None:
         assert isinstance(result, ImportResult)
         self.progress.setValue(100)
-        self._set_result(result.message, "ok" if result.play_ready else "warn")
-        self.stage_value.setText("Completado")
+        self._set_result(translate_message(result.message), "ok" if result.play_ready else "warn")
+        self.stage_value.setText(t("Completado", "Completed"))
         if result.version:
             self.version_value.setText(result.version)
         if result.device:
@@ -358,7 +428,7 @@ class ImporterWindow(QWidget):
 
     def _on_fail(self, message: str) -> None:
         self._set_result(message.splitlines()[0][:300], "err")
-        self.stage_value.setText("Error")
+        self.stage_value.setText(t("Error", "Error"))
         self.append_log(message)
         QMessageBox.critical(self, APP_TITLE, message[:2000])
 
@@ -396,7 +466,10 @@ class ImporterWindow(QWidget):
         if persist:
             save_game_root(self.project.root, path)
         self._show_dest_path(self.project.native_prototype)
-        self.append_log(f"Carpeta del juego: {self.project.native_prototype}")
+        self.append_log(t(
+            f"Carpeta del juego: {self.project.native_prototype}",
+            f"Game folder: {self.project.native_prototype}",
+        ))
 
     def browse_game_folder(self) -> None:
         start = self.project.native_prototype
@@ -404,7 +477,10 @@ class ImporterWindow(QWidget):
             start = self.project.root
         chosen = QFileDialog.getExistingDirectory(
             self,
-            "Carpeta donde guardar .so, fuentes y OBB",
+            t(
+                "Carpeta donde guardar .so, fuentes y OBB",
+                "Folder where .so files, fonts, and OBB will be stored",
+            ),
             str(start),
         )
         if not chosen:
@@ -434,16 +510,25 @@ class ImporterWindow(QWidget):
             QMessageBox.information(
                 self,
                 APP_TITLE,
-                "No hay una carpeta anterior con recursos para mover. "
-                "Elige destino e importa el APK/OBB ahí.",
+                t(
+                    "No hay una carpeta anterior con recursos para mover. "
+                    "Elige destino e importa el APK/OBB ahí.",
+                    "There is no previous asset folder to move. "
+                    "Choose a destination and import the APK/OBB there.",
+                ),
             )
             return
         answer = QMessageBox.question(
             self,
             APP_TITLE,
-            "¿Mover el paquete actual a esta carpeta?\n\n"
-            f"Desde:\n{previous}\n\nHacia:\n{dest}\n\n"
-            "Mueve .so, OBB, fuentes y el motor si están. No duplica el OBB.",
+            t(
+                "¿Mover el paquete actual a esta carpeta?\n\n"
+                f"Desde:\n{previous}\n\nHacia:\n{dest}\n\n"
+                "Mueve .so, OBB, fuentes y el motor si están. No duplica el OBB.",
+                "Move the current package to this folder?\n\n"
+                f"From:\n{previous}\n\nTo:\n{dest}\n\n"
+                "Moves .so files, the OBB, fonts, and the engine when present. It does not duplicate the OBB.",
+            ),
         )
         if answer != QMessageBox.StandardButton.Yes:
             return
@@ -451,14 +536,17 @@ class ImporterWindow(QWidget):
         moved = relocate_game_package(previous, dest)
         save_game_root(self.project.root, dest)
         if moved:
-            self.append_log("Movido: " + ", ".join(moved[:12]) + ("…" if len(moved) > 12 else ""))
+            self.append_log(t("Movido: ", "Moved: ") + ", ".join(moved[:12]) + ("…" if len(moved) > 12 else ""))
         else:
-            self.append_log("No había archivos que mover; el destino ya está listo para importar.")
+            self.append_log(t(
+                "No había archivos que mover; el destino ya está listo para importar.",
+                "There were no files to move; the destination is ready for importing.",
+            ))
         self._show_dest_path(dest)
-        self._set_result(f"Carpeta del juego: {dest}", "ok")
+        self._set_result(t(f"Carpeta del juego: {dest}", f"Game folder: {dest}"), "ok")
 
     def detect_phone(self) -> None:
-        self.append_log("Detectando teléfono…")
+        self.append_log(t("Detectando teléfono…", "Detecting phone…"))
         self.start_worker("detect")
 
     def import_from_phone(self) -> None:
@@ -467,8 +555,12 @@ class ImporterWindow(QWidget):
             QMessageBox.information(
                 self,
                 APP_TITLE,
-                "Primero se detectará el teléfono. Cuando aparezca autorizado, pulsa de nuevo "
-                "«Importar desde teléfono».",
+                t(
+                    "Primero se detectará el teléfono. Cuando aparezca autorizado, pulsa de nuevo "
+                    "«Importar desde teléfono».",
+                    "The phone will be detected first. Once it appears as authorized, press "
+                    "“Import from phone” again.",
+                ),
             )
             return
         ready = [item for item in self.devices if item.authorized]
@@ -476,35 +568,38 @@ class ImporterWindow(QWidget):
             QMessageBox.warning(
                 self,
                 APP_TITLE,
-                "No hay un dispositivo autorizado. Activa la depuración USB y acepta el diálogo RSA.",
+                t(
+                    "No hay un dispositivo autorizado. Activa la depuración USB y acepta el diálogo RSA.",
+                    "There is no authorized device. Enable USB debugging and accept the RSA prompt.",
+                ),
             )
             return
         device = self.selected_device()
         if device is None:
             return
-        self.append_log(f"Importando desde {device.label}…")
+        self.append_log(t(f"Importando desde {device.label}…", f"Importing from {device.label}…"))
         self.start_worker("phone", device=device)
 
     def import_local(self) -> None:
         apk, _ = QFileDialog.getOpenFileName(
             self,
-            "Selecciona NeedForSpeedMostWanted.apk",
+            t("Selecciona NeedForSpeedMostWanted.apk", "Select NeedForSpeedMostWanted.apk"),
             str(self.project.root),
-            "APK (*.apk);;Todos (*.*)",
+            t("APK (*.apk);;Todos (*.*)", "APK (*.apk);;All files (*.*)"),
         )
         if not apk:
             return
         obb, _ = QFileDialog.getOpenFileName(
             self,
-            f"Selecciona {OBB_FILENAME}",
+            t(f"Selecciona {OBB_FILENAME}", f"Select {OBB_FILENAME}"),
             str(Path(apk).parent),
-            "OBB (*.obb);;Todos (*.*)",
+            t("OBB (*.obb);;Todos (*.*)", "OBB (*.obb);;All files (*.*)"),
         )
         if not obb:
             return
         self.append_log(f"APK local: {apk}")
         self.append_log(f"OBB local: {obb}")
-        self.device_value.setText("Archivos locales")
+        self.device_value.setText(t("Archivos locales", "Local files"))
         self.start_worker("local", apk=apk, obb=obb)
 
     def open_folder(self) -> None:
@@ -517,8 +612,12 @@ class ImporterWindow(QWidget):
         answer = QMessageBox.question(
             self,
             APP_TITLE,
-            "La importación no necesita compilar. ¿Ejecutar build.ps1 ahora?\n"
-            "Puede tardar varios minutos y requiere el entorno nativo.",
+            t(
+                "La importación no necesita compilar. ¿Ejecutar build.ps1 ahora?\n"
+                "Puede tardar varios minutos y requiere el entorno nativo.",
+                "Importing does not require a build. Run build.ps1 now?\n"
+                "It may take several minutes and requires the native build environment.",
+            ),
         )
         if answer != QMessageBox.StandardButton.Yes:
             return
@@ -526,7 +625,7 @@ class ImporterWindow(QWidget):
 
     def cancel_worker(self) -> None:
         if self.worker is not None:
-            self.append_log("Cancelando…")
+            self.append_log(t("Cancelando…", "Cancelling…"))
             self.worker.cancel()
 
     def closeEvent(self, event) -> None:  # type: ignore[no-untyped-def]

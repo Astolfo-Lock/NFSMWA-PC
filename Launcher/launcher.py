@@ -262,6 +262,7 @@ class LauncherWindow(QWidget):
         self.last_windowed_resolution = (1280, 720)
         self.last_fullscreen_resolution = self.desktop_resolution
         self.settings = self.load_settings()
+        self.language = "en" if self.settings.get("language") == "en" else "es"
 
         self.setObjectName("launcher")
         self.setWindowTitle(APP_TITLE)
@@ -270,7 +271,7 @@ class LauncherWindow(QWidget):
         install_nfs_fonts(self.root / "fonts")
         self.build_ui()
         self.restore_controls()
-        fit_nfs_window(self, 540, 710, min_width=400, min_height=420)
+        fit_nfs_window(self, 540, 780, min_width=400, min_height=420)
 
     def paintEvent(self, event) -> None:  # noqa: ANN001
         del event
@@ -280,7 +281,15 @@ class LauncherWindow(QWidget):
     def build_ui(self) -> None:
         self.header = NfsHeader("CONFIGURACIÓN", "NEED FOR SPEED  MOST WANTED")
 
-        section = make_section_label("GRÁFICOS")
+        self.language_row = NfsOptionRow("Idioma")
+        self.language_row.set_items([
+            ("ESPAÑOL", "es"),
+            ("ENGLISH", "en"),
+        ])
+        self.language_row.set_current_data(self.language)
+        self.language_row.valueChanged.connect(self.language_changed)
+
+        self.graphics_section = make_section_label("GRÁFICOS")
 
         self.resolution_row = NfsOptionRow("Resolución")
         self.resolution_row.setToolTip("Tamaño de la imagen de salida.")
@@ -351,7 +360,9 @@ class LauncherWindow(QWidget):
         content = QVBoxLayout(body)
         content.setContentsMargins(24, 14, 24, 16)
         content.setSpacing(0)
-        content.addWidget(section)
+        content.addWidget(self.language_row)
+        content.addSpacing(12)
+        content.addWidget(self.graphics_section)
         content.addSpacing(10)
         for row in (
             self.resolution_row,
@@ -377,6 +388,100 @@ class LauncherWindow(QWidget):
         layout.addWidget(self.header)
         layout.addWidget(scroll, 1)
         layout.addLayout(action_row)
+        self.retranslate_ui(reset_status=True)
+
+    def tr(self, spanish: str, english: str) -> str:
+        return english if self.language == "en" else spanish
+
+    def retranslate_ui(self, *, reset_status: bool = False) -> None:
+        self.header.set_text(
+            self.tr("CONFIGURACIÓN", "SETTINGS"),
+            "NEED FOR SPEED  MOST WANTED",
+        )
+        self.language_row.set_label(self.tr("Idioma", "Language"))
+        self.graphics_section.setText(self.tr("GRÁFICOS", "GRAPHICS"))
+        self.resolution_row.set_label(self.tr("Resolución", "Resolution"))
+        self.resolution_row.setToolTip(self.tr(
+            "Tamaño de la imagen de salida.",
+            "Output image size.",
+        ))
+        self.mode_row.set_label(self.tr("Modo de pantalla", "Display mode"))
+        self.mode_row.set_items([
+            (self.tr("Ventana", "Windowed"), "windowed"),
+            (self.tr("Pantalla completa sin bordes", "Borderless fullscreen"), "borderless"),
+            (self.tr("Pantalla completa exclusiva", "Exclusive fullscreen"), "fullscreen"),
+        ])
+        self.quality_row.set_label(self.tr("Calidad gráfica", "Graphics quality"))
+        self.quality_row.set_items([
+            (self.tr("Compatible (estable)", "Compatible (stable)"), "low", True),
+            (self.tr("Alto (híbrido)", "High (hybrid)"), "hybrid", True),
+            (self.tr("Alto (nativo)", "High (native)"), "native", True),
+        ])
+        self.quality_row.setToolTip(self.tr(
+            "Híbrido mejora el filtrado de texturas sobre la ruta estable. Nativo activa "
+            "el nivel 4 móvil original con la corrección de renderizado para Windows.",
+            "Hybrid improves texture filtering on the stable path. Native enables the "
+            "original mobile level 4 with the Windows rendering fix.",
+        ))
+        self.msaa_row.set_label("Antialiasing")
+        self.msaa_row.set_items([
+            (self.tr("Desactivado", "Off"), 0),
+            ("MSAA 2x", 2),
+            ("MSAA 4x", 4),
+        ])
+        self.msaa_row.setToolTip(self.tr(
+            "Suaviza los bordes mediante multisampling real del framebuffer.",
+            "Smooths edges using true framebuffer multisampling.",
+        ))
+        self.fps_row.set_label(self.tr("Límite de FPS", "FPS limit"))
+        self.fps_row.set_items([
+            ("30 FPS", 30),
+            ("60 FPS", 60),
+            (self.tr("60 menú / libre en carrera", "60 menu / uncapped in races"), 0),
+        ])
+        self.fps_row.setToolTip(self.tr(
+            "Mantiene la interfaz a 60 FPS para evitar fallos de desplazamiento y libera "
+            "el límite durante la conducción. Con VSync activo, la frecuencia del monitor "
+            "sigue siendo el límite superior de la carrera.",
+            "Keeps the interface at 60 FPS to prevent scrolling issues and removes the "
+            "limit while driving. With VSync enabled, the monitor refresh rate remains "
+            "the upper limit during races.",
+        ))
+        self.vsync_row.set_label(self.tr("Sincronización vertical", "Vertical sync"))
+        self.vsync_row.set_items([
+            (self.tr("ACTIVADA", "ON"), True),
+            (self.tr("DESACTIVADA", "OFF"), False),
+        ])
+        self.vsync_row.setAccessibleName(self.tr("Sincronización vertical", "Vertical sync"))
+        self.vsync_row.setToolTip(self.tr(
+            "Evita cortes horizontales sincronizando cada imagen con el monitor.",
+            "Prevents screen tearing by synchronizing each frame with the monitor.",
+        ))
+        self.controller_button.setText(self.tr("MANDO", "CONTROLLER"))
+        self.play_button.setText(self.tr("JUGAR", "PLAY"))
+        if reset_status:
+            self.status.setText(self.tr(
+                "Opciones guardadas al jugar.",
+                "Settings are saved when you play.",
+            ))
+
+    def language_changed(self) -> None:
+        self.language = str(self.language_row.current_data() or "es")
+        self.settings["language"] = self.language
+        self.retranslate_ui(reset_status=True)
+        self.apply_display_mode(self.selected_resolution())
+        self.quality_changed()
+        try:
+            self.save_settings(
+                *self.selected_resolution(),
+                str(self.mode_row.current_data()),
+                bool(self.vsync_row.current_data()),
+                str(self.quality_row.current_data()),
+                int(self.msaa_row.current_data()),
+                int(self.fps_row.current_data()),
+            )
+        except OSError:
+            pass
 
     def load_settings(self) -> dict[str, object]:
         defaults: dict[str, object] = {
@@ -387,6 +492,7 @@ class LauncherWindow(QWidget):
             "graphics_quality": "low",
             "msaa": 0,
             "fps_limit": 0,
+            "language": "es",
         }
         try:
             loaded = json.loads(self.config_path.read_text(encoding="utf-8"))
@@ -438,17 +544,28 @@ class LauncherWindow(QWidget):
         quality = str(self.quality_row.current_data() or "low")
         if quality == "hybrid":
             self.graphics_notice.setText(
-                "ALTO HÍBRIDO · Renderer estable con filtrado anisotrópico de texturas hasta 16×; "
-                "puede combinarse con MSAA."
+                self.tr(
+                    "ALTO HÍBRIDO · Renderer estable con filtrado anisotrópico de texturas hasta 16×; "
+                    "puede combinarse con MSAA.",
+                    "HIGH HYBRID · Stable renderer with up to 16× anisotropic texture filtering; "
+                    "can be combined with MSAA.",
+                )
             )
         elif quality == "native":
             self.graphics_notice.setText(
-                "ALTO NATIVO · Activa el nivel 4 móvil original con framebuffers adaptados a "
-                "ANGLE. MSAA se desactiva para preservar esta ruta de postprocesado."
+                self.tr(
+                    "ALTO NATIVO · Activa el nivel 4 móvil original con framebuffers adaptados a "
+                    "ANGLE. MSAA se desactiva para preservar esta ruta de postprocesado.",
+                    "HIGH NATIVE · Enables the original mobile level 4 with framebuffers adapted "
+                    "for ANGLE. MSAA is disabled to preserve this post-processing path.",
+                )
             )
         else:
             self.graphics_notice.setText(
-                "COMPATIBLE · Nivel 0 original y máxima estabilidad sobre ANGLE."
+                self.tr(
+                    "COMPATIBLE · Nivel 0 original y máxima estabilidad sobre ANGLE.",
+                    "COMPATIBLE · Original level 0 and maximum stability on ANGLE.",
+                )
             )
         if self.quality_row.isEnabled():
             self.msaa_row.setEnabled(quality != "native")
@@ -496,13 +613,22 @@ class LauncherWindow(QWidget):
 
         if mode == "borderless":
             self.resolution_row.setEnabled(False)
-            self.hint.setText("Sin bordes usa la resolución actual del escritorio para ocupar la pantalla sin cambiar el modo del monitor.")
+            self.hint.setText(self.tr(
+                "Sin bordes usa la resolución actual del escritorio para ocupar la pantalla sin cambiar el modo del monitor.",
+                "Borderless uses the current desktop resolution to fill the screen without changing the monitor mode.",
+            ))
         else:
             self.resolution_row.setEnabled(True)
             if mode == "fullscreen":
-                self.hint.setText("El modo exclusivo cambia temporalmente la resolución del monitor y la restaura al cerrar el juego.")
+                self.hint.setText(self.tr(
+                    "El modo exclusivo cambia temporalmente la resolución del monitor y la restaura al cerrar el juego.",
+                    "Exclusive mode temporarily changes the monitor resolution and restores it when the game closes.",
+                ))
             else:
-                self.hint.setText("La ventana mantiene el tamaño elegido y puede minimizarse desde su barra de título.")
+                self.hint.setText(self.tr(
+                    "La ventana mantiene el tamaño elegido y puede minimizarse desde su barra de título.",
+                    "The window keeps the selected size and can be minimized from its title bar.",
+                ))
         self.active_display_mode = mode
 
     def validate_package(self) -> list[Path]:
@@ -530,13 +656,17 @@ class LauncherWindow(QWidget):
             "graphics_quality": quality,
             "msaa": msaa,
             "fps_limit": fps_limit,
+            "language": self.language,
         }
         self.config_path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
 
     def open_controller_settings(self) -> None:
-        dialog = ControllerSettingsDialog(self.root / "controller.ini", self)
+        dialog = ControllerSettingsDialog(self.root / "controller.ini", self, language=self.language)
         dialog.exec()
-        self.status.setText("Perfil de mando listo. Se aplicará al iniciar el juego.")
+        self.status.setText(self.tr(
+            "Perfil de mando listo. Se aplicará al iniciar el juego.",
+            "Controller profile ready. It will be applied when the game starts.",
+        ))
 
     def set_controls_enabled(self, enabled: bool) -> None:
         self.controller_button.setEnabled(enabled)
@@ -546,6 +676,7 @@ class LauncherWindow(QWidget):
         self.msaa_row.setEnabled(enabled)
         self.fps_row.setEnabled(enabled)
         self.vsync_row.setEnabled(enabled)
+        self.language_row.setEnabled(enabled)
         if enabled:
             self.display_mode_changed()
             self.quality_changed()
@@ -556,7 +687,10 @@ class LauncherWindow(QWidget):
         missing = self.validate_package()
         if missing:
             names = "\n".join(f"• {path.name}" for path in missing)
-            QMessageBox.critical(self, APP_TITLE, f"Faltan componentes del port nativo:\n\n{names}")
+            QMessageBox.critical(self, APP_TITLE, self.tr(
+                f"Faltan componentes del port nativo:\n\n{names}",
+                f"Native port components are missing:\n\n{names}",
+            ))
             return
 
         width, height = self.selected_resolution()
@@ -591,11 +725,14 @@ class LauncherWindow(QWidget):
             )
             log_stream.close()
         except OSError as exc:
-            QMessageBox.critical(self, APP_TITLE, f"No se pudo iniciar el motor nativo.\n\n{exc}")
+            QMessageBox.critical(self, APP_TITLE, self.tr(
+                f"No se pudo iniciar el motor nativo.\n\n{exc}",
+                f"Could not start the native engine.\n\n{exc}",
+            ))
             return
 
         self.set_controls_enabled(False)
-        self.status.setText("Iniciando el motor nativo…")
+        self.status.setText(self.tr("Iniciando el motor nativo…", "Starting the native engine…"))
         QTimer.singleShot(1200, self.finish_launch)
 
     def finish_launch(self) -> None:
@@ -605,15 +742,24 @@ class LauncherWindow(QWidget):
                     encoding="utf-8", errors="replace"
                 )
             except OSError:
-                log_text = "No se pudo leer runtime.log."
-            excerpt = log_text[-2500:] if log_text else "El motor terminó sin dejar información."
+                log_text = self.tr("No se pudo leer runtime.log.", "Could not read runtime.log.")
+            excerpt = log_text[-2500:] if log_text else self.tr(
+                "El motor terminó sin dejar información.",
+                "The engine exited without leaving any information.",
+            )
             QMessageBox.critical(
                 self,
                 APP_TITLE,
-                f"El motor nativo se cerró durante el arranque.\n\n{excerpt}",
+                self.tr(
+                    f"El motor nativo se cerró durante el arranque.\n\n{excerpt}",
+                    f"The native engine exited during startup.\n\n{excerpt}",
+                ),
             )
             self.set_controls_enabled(True)
-            self.status.setText("Corrige el problema e inténtalo nuevamente.")
+            self.status.setText(self.tr(
+                "Corrige el problema e inténtalo nuevamente.",
+                "Fix the problem and try again.",
+            ))
             return
         self.close()
 
