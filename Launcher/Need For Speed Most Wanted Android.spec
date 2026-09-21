@@ -22,6 +22,12 @@ def _find_sdl():
             break
         current = current.parent
     for start in starts:
+        runtime_dll = start / "Motor" / "SDL2.dll"
+        if runtime_dll.is_file():
+            return runtime_dll
+        adjacent_dll = start / "SDL2.dll"
+        if adjacent_dll.is_file():
+            return adjacent_dll
         direct = start / "third_party" / "SDL2" / "x64" / "SDL2.dll"
         if direct.is_file():
             return direct
@@ -32,6 +38,9 @@ def _find_sdl():
         for child in children[:40]:
             if not child.is_dir():
                 continue
+            runtime_dll = child / "Motor" / "SDL2.dll"
+            if runtime_dll.is_file():
+                return runtime_dll
             nested = child / "third_party" / "SDL2" / "x64" / "SDL2.dll"
             if nested.is_file():
                 return nested

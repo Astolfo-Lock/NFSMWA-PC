@@ -54,6 +54,12 @@ function Find-PythonLauncher {
 }
 
 function Find-PathPythonWithDeps {
+    foreach ($Name in @('python', 'python3')) {
+        $Cmd = Get-Command $Name -ErrorAction SilentlyContinue
+        if (-not $Cmd) { continue }
+        & $Cmd.Source -c "import PyQt6, PyInstaller" 2>$null | Out-Null
+        if ($LASTEXITCODE -eq 0) { return $Cmd.Source }
+    }
     $Py = Get-Command py -ErrorAction SilentlyContinue
     if ($Py) {
         foreach ($Ver in @('-3.10', '-3')) {
@@ -63,12 +69,6 @@ function Find-PathPythonWithDeps {
                 if ($Exe) { return $Exe.Trim() }
             }
         }
-    }
-    foreach ($Name in @('python', 'python3')) {
-        $Cmd = Get-Command $Name -ErrorAction SilentlyContinue
-        if (-not $Cmd) { continue }
-        & $Cmd.Source -c "import PyQt6, PyInstaller" 2>$null | Out-Null
-        if ($LASTEXITCODE -eq 0) { return $Cmd.Source }
     }
     return $null
 }
