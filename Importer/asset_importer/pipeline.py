@@ -9,6 +9,7 @@ from pathlib import Path
 from . import adb as adbmod
 from .constants import APK_DISPLAY_NAME, OBB_FILENAME, PACKAGE_NAME, VERSION_NAME
 from .installer import install_assets, runtime_status
+from .i18n import t
 from .paths import ProjectPaths, find_adb
 from .validation import ValidationError, validate_pair
 from .zip_safe import ZipSafetyError
@@ -59,7 +60,7 @@ class Pipeline:
 
     def check_cancel(self) -> None:
         if self._cancelled():
-            raise ImportCancelled("Operación cancelada.")
+            raise ImportCancelled(t("Operación cancelada.", "Operation cancelled."))
 
     def log(self, message: str) -> None:
         self._log(message)
@@ -75,36 +76,45 @@ class Pipeline:
         path = find_adb(self.project)
         if path is None:
             raise PipelineError(
-                "No se encontró adb.exe. Colócalo junto al importador, en "
-                "platform-tools del proyecto, o en el PATH. Este programa no descarga "
-                "Platform Tools automáticamente."
+                t(
+                    "No se encontró adb.exe. Colócalo junto al importador, en "
+                    "platform-tools del proyecto, o en el PATH. Este programa no descarga "
+                    "Platform Tools automáticamente.",
+                    "Could not find adb.exe. Place it next to the importer, in the project's "
+                    "platform-tools folder, or in PATH. This program does not download "
+                    "Platform Tools automatically.",
+                )
             )
         self.log(f"ADB: {path}")
         return path
 
     def detect_devices(self) -> list[adbmod.AdbDevice]:
         adb = self.locate_adb()
-        self.stage("Detectando dispositivos ADB", 5)
+        self.stage(t("Detectando dispositivos ADB", "Detecting ADB devices"), 5)
         devices = adbmod.list_devices(adb)
         summary = adbmod.describe_device_state(devices)
-        self._set_device(summary or "Ningún dispositivo")
+        self._set_device(summary or t("Ningún dispositivo", "No device"))
         self.log(summary)
         return devices
 
     def import_from_files(self, apk: Path, obb: Path, source_label: str = "local") -> ImportResult:
         apk = Path(apk)
         obb = Path(obb)
-        self.stage("Validando APK y OBB", 10)
+        self.stage(t("Validando APK y OBB", "Validating APK and OBB"), 10)
         try:
             report = validate_pair(apk, obb)
         except (ValidationError, ZipSafetyError) as exc:
             raise PipelineError(str(exc)) from exc
         self._set_version(f"{report.version_name} (versionCode {report.version_code})")
         self.log(
-            f"Paquete {report.package} {report.version_name} confirmado. "
-            "El OBB incluye published.1x y published.2x."
+            t(
+                f"Paquete {report.package} {report.version_name} confirmado. "
+                "El OBB incluye published.1x y published.2x.",
+                f"Package {report.package} {report.version_name} verified. "
+                "The OBB includes published.1x and published.2x.",
+            )
         )
-        self.stage("Instalando recursos validados", 40)
+        self.stage(t("Instalando recursos validados", "Installing validated assets"), 40)
 
         def on_stage(name: str) -> None:
             self.stage(name)
@@ -127,7 +137,7 @@ class Pipeline:
     def import_from_phone(self, device: adbmod.AdbDevice) -> ImportResult:
         adb = self.locate_adb()
         self._set_device(device.label)
-        self.stage("Consultando paquete instalado", 8)
+        self.stage(t("Consultando paquete instalado", "Checking installed package"), 8)
         try:
             info = adbmod.inspect_phone(adb, device)
         except adbmod.ObbAccessError as exc:
@@ -135,14 +145,17 @@ class Pipeline:
         except adbmod.AdbError as exc:
             raise PipelineError(str(exc)) from exc
         self._set_version(f"{info.version_name} (versionCode {info.version_code})")
-        self.log(f"APK remoto: {info.apk_remote}")
-        self.log(f"OBB remoto: {info.obb_remote}")
+        self.log(t(f"APK remoto: {info.apk_remote}", f"Remote APK: {info.apk_remote}"))
+        self.log(t(f"OBB remoto: {info.obb_remote}", f"Remote OBB: {info.obb_remote}"))
 
         with tempfile.TemporaryDirectory(prefix="nfsmw_adb_") as raw:
             tmp = Path(raw)
             local_apk = tmp / APK_DISPLAY_NAME
             local_obb = tmp / OBB_FILENAME
-            self.stage("Copiando APK desde el teléfono (solo lectura)", 15)
+            self.stage(t(
+                "Copiando APK desde el teléfono (solo lectura)",
+                "Copying APK from phone (read-only)",
+            ), 15)
             try:
                 adbmod.pull_file(
                     adb,
@@ -152,7 +165,10 @@ class Pipeline:
                     on_output=self.log,
                     cancel_flag=self._cancelled,
                 )
-                self.stage("Copiando OBB intacto desde el teléfono (solo lectura)", 28)
+                self.stage(t(
+                    "Copiando OBB intacto desde el teléfono (solo lectura)",
+                    "Copying intact OBB from phone (read-only)",
+                ), 28)
                 adbmod.pull_file(
                     adb,
                     device,
@@ -165,8 +181,12 @@ class Pipeline:
                 message = str(exc)
                 if adbmod._looks_like_permission_denied(message):
                     raise PipelineError(
-                        "Android bloqueó la copia del OBB. Usa «Seleccionar archivos locales» "
-                        f"con {APK_DISPLAY_NAME} y {OBB_FILENAME}."
+                        t(
+                            "Android bloqueó la copia del OBB. Usa «Seleccionar archivos locales» "
+                            f"con {APK_DISPLAY_NAME} y {OBB_FILENAME}.",
+                            "Android blocked the OBB copy. Use “Select local files” with "
+                            f"{APK_DISPLAY_NAME} and {OBB_FILENAME}.",
+                        )
                     ) from exc
                 raise PipelineError(message) from exc
             result = self.import_from_files(local_apk, local_obb, source_label=f"adb:{device.serial}")
@@ -179,13 +199,16 @@ class Pipeline:
         assets_ok = True
         play_ready = not missing
         if play_ready:
-            message = "Paquete completo listo para jugar."
+            message = t("Paquete completo listo para jugar.", "Complete package ready to play.")
         else:
             missing_list = ", ".join(missing)
-            message = (
+            message = t(
                 "Recursos originales importados correctamente. "
                 f"Aún falta para jugar: {missing_list}. "
-                "Puedes ejecutar build.ps1 si tienes el entorno de compilación."
+                "Puedes ejecutar build.ps1 si tienes el entorno de compilación.",
+                "Original assets imported successfully. "
+                f"Still required to play: {missing_list}. "
+                "You can run build.ps1 if you have the build environment.",
             )
         self.stage(message, 100)
         self.log(f"Manifiesto: {self.project.manifest}")
@@ -209,4 +232,7 @@ def open_game_folder(project: ProjectPaths) -> None:
     if os.name == "nt":
         os.startfile(str(folder))  # type: ignore[attr-defined]
         return
-    raise PipelineError(f"Abre manualmente la carpeta del juego: {folder}")
+    raise PipelineError(t(
+        f"Abre manualmente la carpeta del juego: {folder}",
+        f"Open the game folder manually: {folder}",
+    ))

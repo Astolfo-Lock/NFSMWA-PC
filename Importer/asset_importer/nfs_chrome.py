@@ -191,6 +191,11 @@ class NfsHeader(QWidget):
         self._subtitle = subtitle
         self.setFixedHeight(84)
 
+    def set_text(self, title: str, subtitle: str) -> None:
+        self._title = title
+        self._subtitle = subtitle
+        self.update()
+
     def paintEvent(self, event) -> None:  # noqa: ANN001
         del event
         painter = QPainter(self)
@@ -258,6 +263,10 @@ class NfsOptionRow(QWidget):
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.setMouseTracking(True)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
+
+    def set_label(self, label: str) -> None:
+        self._label = label
+        self.update()
 
     def set_interactive(self, interactive: bool) -> None:
         self._interactive = interactive
@@ -529,6 +538,10 @@ class NfsInfoRow(QWidget):
         self._tone = "normal"
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
         self.setMinimumHeight(48)
+
+    def set_label(self, label: str) -> None:
+        self._label = label
+        self.update()
 
     def setText(self, text: str) -> None:
         self._value = text

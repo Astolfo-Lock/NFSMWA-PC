@@ -21,9 +21,28 @@ from asset_importer.constants import (
     X86_LIBRARIES,
 )
 from asset_importer.paths import ProjectPaths
+from asset_importer.i18n import set_language, t, translate_message
 from asset_importer.pipeline import Pipeline, PipelineError
 from asset_importer.validation import ValidationError, validate_apk, validate_obb, validate_pair
 from asset_importer.zip_safe import ZipSafetyError, is_safe_zip_name, safe_destination
+
+
+class TranslationTests(unittest.TestCase):
+    def tearDown(self) -> None:
+        set_language("es")
+
+    def test_language_switch_and_dynamic_messages(self) -> None:
+        set_language("en")
+        self.assertEqual(t("Etapa", "Stage"), "Stage")
+        message = "El OBB no contiene los datos published.1x y published.2x requeridos."
+        self.assertEqual(
+            translate_message(message),
+            "The OBB does not contain the required published.1x and published.2x data.",
+        )
+
+    def test_spanish_remains_default(self) -> None:
+        set_language("es")
+        self.assertEqual(t("Resultado", "Result"), "Resultado")
 
 
 def elf_x86() -> bytes:
