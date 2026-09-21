@@ -7,6 +7,7 @@ nfsmwa_runtime.exe
 libEGL.dll
 libGLESv2.dll
 SDL2.dll
+!third_party/SDL2/x64/SDL2.dll
 game_data/
 fonts/
 __pycache__/

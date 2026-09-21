@@ -104,6 +104,53 @@ class XInputState(ctypes.Structure):
     _fields_ = [("dwPacketNumber", wintypes.DWORD), ("Gamepad", XInputGamepad)]
 
 
+class JoyInfoEx(ctypes.Structure):
+    _fields_ = [
+        ("dwSize", wintypes.DWORD),
+        ("dwFlags", wintypes.DWORD),
+        ("dwXpos", wintypes.DWORD),
+        ("dwYpos", wintypes.DWORD),
+        ("dwZpos", wintypes.DWORD),
+        ("dwRpos", wintypes.DWORD),
+        ("dwUpos", wintypes.DWORD),
+        ("dwVpos", wintypes.DWORD),
+        ("dwButtons", wintypes.DWORD),
+        ("dwButtonNumber", wintypes.DWORD),
+        ("dwPOV", wintypes.DWORD),
+        ("dwReserved1", wintypes.DWORD),
+        ("dwReserved2", wintypes.DWORD),
+    ]
+
+
+class JoyCapsW(ctypes.Structure):
+    _fields_ = [
+        ("wMid", wintypes.WORD),
+        ("wPid", wintypes.WORD),
+        ("szPname", wintypes.WCHAR * 32),
+        ("wXmin", wintypes.UINT),
+        ("wXmax", wintypes.UINT),
+        ("wYmin", wintypes.UINT),
+        ("wYmax", wintypes.UINT),
+        ("wZmin", wintypes.UINT),
+        ("wZmax", wintypes.UINT),
+        ("wNumButtons", wintypes.UINT),
+        ("wPeriodMin", wintypes.UINT),
+        ("wPeriodMax", wintypes.UINT),
+        ("wRmin", wintypes.UINT),
+        ("wRmax", wintypes.UINT),
+        ("wUmin", wintypes.UINT),
+        ("wUmax", wintypes.UINT),
+        ("wVmin", wintypes.UINT),
+        ("wVmax", wintypes.UINT),
+        ("wCaps", wintypes.UINT),
+        ("wMaxAxes", wintypes.UINT),
+        ("wNumAxes", wintypes.UINT),
+        ("wMaxButtons", wintypes.UINT),
+        ("szRegKey", wintypes.WCHAR * 32),
+        ("szOEMVxD", wintypes.WCHAR * 260),
+    ]
+
+
 @dataclass
 class ControllerReading:
     name: str
@@ -155,6 +202,114 @@ class XInputBackend:
         return active
 
 
+class WinMMBackend:
+    """Architecture-independent fallback for DirectInput/HID joysticks.
+
+    This is important for the bundled runtime: its SDL2.dll is 32-bit, while
+    the PyQt launcher may be 64-bit and therefore cannot load that DLL.
+    """
+
+    JOY_RETURNALL = 0x000000FF
+    JOY_POVCENTERED = 0xFFFF
+    BUTTONS = (
+        "A", "B", "X", "Y", "LB", "RB", "LT", "RT",
+        "BACK", "START", "LS", "RS",
+    )
+
+    def __init__(self) -> None:
+        self.library_name = ""
+        self.error = ""
+        self._get_pos = None
+        self._get_caps = None
+        self._num_devices = None
+        if os.name != "nt":
+            return
+        try:
+            library = ctypes.WinDLL("winmm.dll")
+            self._get_pos = library.joyGetPosEx
+            self._get_pos.argtypes = [wintypes.UINT, ctypes.POINTER(JoyInfoEx)]
+            self._get_pos.restype = wintypes.UINT
+            self._get_caps = library.joyGetDevCapsW
+            self._get_caps.argtypes = [wintypes.UINT, ctypes.POINTER(JoyCapsW), wintypes.UINT]
+            self._get_caps.restype = wintypes.UINT
+            self._num_devices = library.joyGetNumDevs
+            self._num_devices.argtypes = []
+            self._num_devices.restype = wintypes.UINT
+            self.library_name = "WinMM/HID"
+        except (AttributeError, OSError) as exc:
+            self.error = str(exc)
+            self._get_pos = None
+
+    @property
+    def available(self) -> bool:
+        return self._get_pos is not None
+
+    def _state(self, device_id: int) -> JoyInfoEx | None:
+        if self._get_pos is None:
+            return None
+        state = JoyInfoEx()
+        state.dwSize = ctypes.sizeof(state)
+        state.dwFlags = self.JOY_RETURNALL
+        return state if self._get_pos(device_id, ctypes.byref(state)) == 0 else None
+
+    def device_indexes(self) -> list[int]:
+        if self._num_devices is None:
+            return []
+        indexes = []
+        for index in range(min(16, self._num_devices())):
+            caps = self._caps(index)
+            # Some Windows installations expose a placeholder joystick with
+            # zero controls. It must not occupy a visible controller slot.
+            if self._state(index) and caps and (caps.wNumButtons or caps.wNumAxes):
+                indexes.append(index)
+        return indexes
+
+    def _caps(self, device_id: int) -> JoyCapsW | None:
+        if self._get_caps is None:
+            return None
+        caps = JoyCapsW()
+        if self._get_caps(device_id, ctypes.byref(caps), ctypes.sizeof(caps)) == 0:
+            return caps
+        return None
+
+    def _name(self, device_id: int) -> str:
+        caps = self._caps(device_id)
+        return caps.szPname if caps and caps.szPname else "Mando HID"
+
+    def device_names(self) -> list[str]:
+        return [self._name(index) for index in self.device_indexes()]
+
+    def reading(self, player: int) -> ControllerReading | None:
+        indexes = self.device_indexes()
+        if player >= len(indexes):
+            return None
+        device_id = indexes[player]
+        state = self._state(device_id)
+        if state is None:
+            return None
+        active = {
+            name for button, name in enumerate(self.BUTTONS)
+            if state.dwButtons & (1 << button)
+        }
+        pov = state.dwPOV
+        if pov != self.JOY_POVCENTERED:
+            # Values are hundredths of a degree. Include both directions for
+            # diagonals, using broad sectors to tolerate imperfect devices.
+            if pov >= 31500 or pov <= 4500:
+                active.add("DPAD_UP")
+            if 4500 <= pov <= 13500:
+                active.add("DPAD_RIGHT")
+            if 13500 <= pov <= 22500:
+                active.add("DPAD_DOWN")
+            if 22500 <= pov <= 31500:
+                active.add("DPAD_LEFT")
+        return ControllerReading(
+            name=self._name(device_id),
+            backend="WinMM/HID",
+            active_inputs=active,
+        )
+
+
 class SDL2Backend:
     INIT_JOYSTICK = 0x00000200
     INIT_GAMECONTROLLER = 0x00002000
@@ -175,7 +330,7 @@ class SDL2Backend:
         "DPAD_RIGHT": 14,
     }
 
-    def __init__(self) -> None:
+    def __init__(self, runtime_root: Path | None = None) -> None:
         self.library_name = ""
         self.error = ""
         self._library = None
@@ -188,8 +343,25 @@ class SDL2Backend:
         bundle_root = getattr(sys, "_MEIPASS", None)
         if bundle_root:
             candidates.append(Path(bundle_root) / "SDL2.dll")
-        candidates.append(Path(__file__).resolve().parent / "third_party" / "SDL2" / "x64" / "SDL2.dll")
+        if runtime_root is not None:
+            candidates.append(Path(runtime_root) / "SDL2.dll")
+        if getattr(sys, "frozen", False):
+            candidates.append(Path(sys.executable).resolve().parent / "SDL2.dll")
+        source_root = Path(__file__).resolve().parent
+        candidates.extend((
+            source_root / "SDL2.dll",
+            source_root.parent / "Motor" / "SDL2.dll",
+            source_root / "third_party" / "SDL2" / "x64" / "SDL2.dll",
+        ))
+        seen: set[Path] = set()
         for candidate in candidates:
+            try:
+                candidate = candidate.resolve()
+            except OSError:
+                pass
+            if candidate in seen:
+                continue
+            seen.add(candidate)
             if not candidate.is_file():
                 continue
             try:
@@ -201,11 +373,14 @@ class SDL2Backend:
                     self.error = self._error_text()
                     self._library = None
                     continue
+                self.error = ""
                 self._available = True
                 break
             except (AttributeError, OSError) as exc:
                 self.error = str(exc)
                 self._library = None
+        if not self._available and not self.error:
+            self.error = "SDL2.dll no encontrada"
 
     def _bind_functions(self) -> None:
         assert self._library is not None
@@ -248,6 +423,9 @@ class SDL2Backend:
         self._update = self._library.SDL_GameControllerUpdate
         self._update.argtypes = []
         self._update.restype = None
+        self._pump_events = self._library.SDL_PumpEvents
+        self._pump_events.argtypes = []
+        self._pump_events.restype = None
         self._get_error = self._library.SDL_GetError
         self._get_error.argtypes = []
         self._get_error.restype = ctypes.c_char_p
@@ -265,6 +443,9 @@ class SDL2Backend:
     def device_indexes(self) -> list[int]:
         if not self.available:
             return []
+        # SDL only refreshes its hot-plug device list while its event loop is
+        # pumped.  The launcher has a Qt event loop, not an SDL one.
+        self._pump_events()
         self._update()
         return [index for index in range(max(0, self._num_joysticks())) if self._is_controller(index)]
 
@@ -316,9 +497,10 @@ class SDL2Backend:
 
 
 class HybridControllerBackend:
-    def __init__(self) -> None:
+    def __init__(self, runtime_root: Path | None = None) -> None:
         self.xinput = XInputBackend()
-        self.sdl = SDL2Backend()
+        self.sdl = SDL2Backend(runtime_root)
+        self.winmm = WinMMBackend()
 
     @property
     def library_name(self) -> str:
@@ -327,7 +509,9 @@ class HybridControllerBackend:
             backends.append(self.xinput.library_name)
         if self.sdl.available:
             backends.append("SDL2/HID")
-        return " + ".join(backends) or self.sdl.error or "sin backend disponible"
+        if self.winmm.available:
+            backends.append(self.winmm.library_name)
+        return " + ".join(backends) or self.sdl.error or self.winmm.error or "sin backend disponible"
 
     def reading(self, player: int) -> ControllerReading | None:
         xinput_state = self.xinput.state(player)
@@ -337,16 +521,19 @@ class HybridControllerBackend:
                 backend="XInput",
                 active_inputs=self.xinput.active_inputs(xinput_state),
             )
-        return self.sdl.reading(player)
+        return self.sdl.reading(player) or self.winmm.reading(player)
 
     def slot_labels(self) -> list[str]:
         sdl_names = self.sdl.device_names()
+        winmm_names = self.winmm.device_names()
         labels = []
         for player in range(4):
             if self.xinput.state(player) is not None:
                 labels.append(f"Mando XInput {player + 1}")
             elif player < len(sdl_names):
                 labels.append(f"{sdl_names[player]} · HID/SDL")
+            elif player < len(winmm_names):
+                labels.append(f"{winmm_names[player]} · HID/Windows")
             else:
                 labels.append(f"Mando {player + 1} · no detectado")
         return labels
@@ -410,7 +597,10 @@ class ControllerSettingsDialog(QDialog):
         super().__init__(parent)
         self.language = "en" if language == "en" else "es"
         self.config_path = config_path
-        self.backend = HybridControllerBackend()
+        # controller.ini lives beside the native runtime and its SDL2.dll.
+        # Passing that directory avoids depending on the launcher's current
+        # working directory (and also works for the packaged executable).
+        self.backend = HybridControllerBackend(config_path.parent)
         self.settings = load_controller_settings(config_path)
         self.bindings = dict(self.settings["bindings"])
         self.binding_buttons: dict[str, NfsActionButton] = {}
