@@ -6,12 +6,19 @@ import tempfile
 import unittest
 import zipfile
 from pathlib import Path
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from asset_importer.adb import describe_device_state, parse_devices
+from asset_importer.adb import (
+    AdbDevice,
+    PhonePackage,
+    describe_device_state,
+    parse_devices,
+    redact_device_serial,
+)
 from asset_importer.constants import (
     FONT_ASSETS,
     FONT_FILENAMES,
@@ -22,7 +29,7 @@ from asset_importer.constants import (
 )
 from asset_importer.paths import ProjectPaths
 from asset_importer.i18n import set_language, t, translate_message
-from asset_importer.pipeline import Pipeline, PipelineError
+from asset_importer.pipeline import ImportResult, Pipeline, PipelineError
 from asset_importer.validation import ValidationError, validate_apk, validate_obb, validate_pair
 from asset_importer.zip_safe import ZipSafetyError, is_safe_zip_name, safe_destination
 
@@ -214,13 +221,63 @@ class AdbParseTests(unittest.TestCase):
         self.assertEqual(devices[1].state, "unauthorized")
         self.assertEqual(devices[2].state, "offline")
         summary = describe_device_state(devices)
+        self.assertIn("SM G965F", summary)
         self.assertIn("No autorizado", summary)
         self.assertIn("Offline", summary)
+        self.assertNotIn("R58M123", summary)
+        self.assertNotIn("emulator-5554", summary)
+        self.assertNotIn("ABC", summary)
+        self.assertNotIn("product:", summary)
+
+    def test_device_public_text_contains_only_model(self) -> None:
+        device = AdbDevice(serial="PRIVATE-SERIAL-123", state="device", model="Pixel 9")
+        self.assertEqual(device.label, "Pixel 9")
+        self.assertNotIn(device.serial, repr(device))
+        text = redact_device_serial(f"device {device.serial} offline", device)
+        self.assertNotIn(device.serial, text)
+
+    def test_missing_model_does_not_fall_back_to_serial(self) -> None:
+        device = AdbDevice(serial="PRIVATE-SERIAL-456", state="unauthorized")
+        self.assertEqual(device.label, "Modelo desconocido")
+        self.assertNotIn(device.serial, describe_device_state([device]))
 
     def test_no_devices(self) -> None:
         devices = parse_devices("List of devices attached\n")
         self.assertEqual(devices, [])
         self.assertIn("Ningún dispositivo", describe_device_state(devices))
+
+
+class DevicePrivacyTests(unittest.TestCase):
+    def test_phone_import_manifest_source_does_not_include_serial(self) -> None:
+        private_serial = "PRIVATE-SERIAL-789"
+        device = AdbDevice(serial=private_serial, state="device", model="Pixel 9")
+        package = PhonePackage(
+            apk_remote="/data/app/base.apk",
+            obb_remote="/sdcard/Android/obb/game/main.obb",
+            version_name="1.3.128",
+            version_code="1003128",
+            device=device,
+        )
+        captured: dict[str, str] = {}
+
+        with tempfile.TemporaryDirectory() as raw:
+            pipeline = Pipeline(ProjectPaths(Path(raw)))
+            pipeline.locate_adb = lambda: Path("adb.exe")  # type: ignore[method-assign]
+
+            def fake_import(_apk: Path, _obb: Path, source_label: str = "local") -> ImportResult:
+                captured["source"] = source_label
+                return ImportResult(True, True, "ok")
+
+            pipeline.import_from_files = fake_import  # type: ignore[method-assign]
+            with (
+                patch("asset_importer.pipeline.adbmod.inspect_phone", return_value=package),
+                patch("asset_importer.pipeline.adbmod.pull_file"),
+            ):
+                result = pipeline.import_from_phone(device)
+
+        self.assertEqual(captured["source"], "adb")
+        self.assertNotIn(private_serial, captured["source"])
+        self.assertEqual(result.device, "Pixel 9")
 
 
 class InstallerTests(unittest.TestCase):

@@ -395,7 +395,8 @@ class ImporterWindow(QWidget):
         self.devices = devices
         ready = [item for item in devices if item.authorized]
         if len(ready) > 1:
-            self.device_row.set_items([(item.label, item.serial) for item in ready])
+            # Keep the private ADB serial out of the visible widget data.
+            self.device_row.set_items([(item.label, index) for index, item in enumerate(ready)])
             self.device_row.setVisible(True)
             self.append_log(t(
                 "Hay varios dispositivos autorizados. Elige uno antes de importar.",
@@ -442,10 +443,9 @@ class ImporterWindow(QWidget):
             return None
         if len(ready) == 1:
             return ready[0]
-        serial = str(self.device_row.current_data() or "")
-        for item in ready:
-            if item.serial == serial:
-                return item
+        index = int(self.device_row.current_data() or 0)
+        if 0 <= index < len(ready):
+            return ready[index]
         return ready[0]
 
     def _short_path(self, path: Path) -> str:

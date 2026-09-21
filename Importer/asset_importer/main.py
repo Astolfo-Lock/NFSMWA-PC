@@ -127,7 +127,7 @@ def main(argv: list[str] | None = None) -> int:
     if cli_mode:
         try:
             _cli_error_log().write_text(
-                "argv:\n" + "\n".join(sys.argv if argv is None else argv),
+                "CLI iniciada. Los argumentos se omiten por privacidad.\n",
                 encoding="utf-8",
             )
         except OSError:

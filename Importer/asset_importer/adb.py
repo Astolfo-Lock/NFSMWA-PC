@@ -4,7 +4,7 @@ import os
 import re
 import subprocess
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from .constants import OBB_CANDIDATE_PATHS, OBB_FILENAME, PACKAGE_NAME, VERSION_CODE, VERSION_NAME
@@ -22,10 +22,11 @@ class ObbAccessError(AdbError):
 
 @dataclass(frozen=True)
 class AdbDevice:
-    serial: str
+    # ADB needs the serial internally to address the correct transport, but it
+    # must never appear in labels, logs, manifests, or object representations.
+    serial: str = field(repr=False)
     state: str
     model: str = ""
-    details: str = ""
 
     @property
     def authorized(self) -> bool:
@@ -33,8 +34,25 @@ class AdbDevice:
 
     @property
     def label(self) -> str:
-        extra = self.model or self.state
-        return f"{self.serial} ({extra})" if extra else self.serial
+        return self.model or "Modelo desconocido"
+
+
+def redact_device_serial(text: str, device: AdbDevice) -> str:
+    return text.replace(device.serial, "<identificador oculto>") if device.serial else text
+
+
+def _private_serials(args: list[str]) -> tuple[str, ...]:
+    return tuple(
+        args[index + 1]
+        for index, value in enumerate(args[:-1])
+        if value == "-s" and args[index + 1]
+    )
+
+
+def _redact_serials(text: str, serials: tuple[str, ...]) -> str:
+    for serial in serials:
+        text = text.replace(serial, "<identificador oculto>")
+    return text
 
 
 @dataclass
@@ -53,6 +71,7 @@ def _run(
     check: bool = True,
 ) -> subprocess.CompletedProcess[str]:
     command = [str(adb), *args]
+    private_serials = _private_serials(args)
     try:
         completed = subprocess.run(
             command,
@@ -67,9 +86,11 @@ def _run(
     except FileNotFoundError as exc:
         raise AdbError(f"No se pudo ejecutar adb: {adb}") from exc
     except subprocess.TimeoutExpired as exc:
-        raise AdbError(f"Tiempo agotado al ejecutar: {' '.join(command)}") from exc
+        safe_command = _redact_serials(" ".join(command), private_serials)
+        raise AdbError(f"Tiempo agotado al ejecutar: {safe_command}") from exc
     if check and completed.returncode != 0:
         detail = (completed.stderr or completed.stdout or "").strip()
+        detail = _redact_serials(detail, private_serials)
         raise AdbError(detail or f"adb falló con código {completed.returncode}")
     return completed
 
@@ -89,7 +110,7 @@ def parse_devices(output: str) -> list[AdbDevice]:
         extras = " ".join(rest)
         model_match = re.search(r"model:([^\s]+)", extras)
         model = model_match.group(1).replace("_", " ") if model_match else ""
-        devices.append(AdbDevice(serial=serial, state=state, model=model, details=extras))
+        devices.append(AdbDevice(serial=serial, state=state, model=model))
     return devices
 
 
@@ -115,11 +136,11 @@ def describe_device_state(devices: list[AdbDevice]) -> str:
     if unauthorized:
         parts.append(
             "No autorizado: "
-            + ", ".join(item.serial for item in unauthorized)
+            + ", ".join(item.label for item in unauthorized)
             + ". Desbloquea el teléfono y acepta la huella RSA."
         )
     if offline:
-        parts.append("Offline: " + ", ".join(item.serial for item in offline) + ".")
+        parts.append("Offline: " + ", ".join(item.label for item in offline) + ".")
     return " ".join(parts)
 
 
@@ -131,7 +152,8 @@ def shell(adb: Path, device: AdbDevice, command: str, timeout: int = 40) -> str:
     completed = _run(adb, [*_serial_args(device), "shell", command], timeout=timeout, check=False)
     output = (completed.stdout or "") + (completed.stderr or "")
     if completed.returncode != 0:
-        raise AdbError(output.strip() or f"Falló: adb shell {command}")
+        detail = output.strip() or f"Falló: adb shell {command}"
+        raise AdbError(redact_device_serial(detail, device))
     return completed.stdout
 
 
@@ -291,9 +313,9 @@ def pull_file(
             while "\n" in leftover:
                 line, leftover = leftover.split("\n", 1)
                 if on_output and line.strip():
-                    on_output(line.strip())
+                    on_output(redact_device_serial(line.strip(), device))
         if leftover.strip() and on_output:
-            on_output(leftover.strip())
+            on_output(redact_device_serial(leftover.strip(), device))
         code = process.wait(timeout=timeout)
     except subprocess.TimeoutExpired as exc:
         process.kill()

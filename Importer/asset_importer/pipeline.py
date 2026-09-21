@@ -85,7 +85,7 @@ class Pipeline:
                     "Platform Tools automatically.",
                 )
             )
-        self.log(f"ADB: {path}")
+        self.log(t("ADB disponible.", "ADB available."))
         return path
 
     def detect_devices(self) -> list[adbmod.AdbDevice]:
@@ -189,7 +189,8 @@ class Pipeline:
                         )
                     ) from exc
                 raise PipelineError(message) from exc
-            result = self.import_from_files(local_apk, local_obb, source_label=f"adb:{device.serial}")
+            # Persist the import method, never the private ADB identifier.
+            result = self.import_from_files(local_apk, local_obb, source_label="adb")
             result.device = device.label
             result.version = f"{info.version_name} (versionCode {info.version_code})"
             return result
@@ -211,9 +212,9 @@ class Pipeline:
                 "You can run build.ps1 if you have the build environment.",
             )
         self.stage(message, 100)
-        self.log(f"Manifiesto: {self.project.manifest}")
+        self.log(t("Manifiesto actualizado.", "Manifest updated."))
         if payload.get("backup"):
-            self.log(f"Respaldo: {payload['backup']}")
+            self.log(t("Respaldo local creado.", "Local backup created."))
         return ImportResult(
             assets_ok=assets_ok,
             play_ready=play_ready,
